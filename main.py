@@ -13,6 +13,10 @@ from database import db_session
 from models import Job, Visualization, VisualizationResult, STATUS_MAP
 
 from lucid.modelzoo import vision_models
+
+import lucid.modelzoo.vision_models as models
+import lucid.modelzoo.nets_factory as nets
+
 from lucid.modelzoo.nets_factory import get_model
 
 from network_utils import NETWORK_DESCRIPTION
@@ -37,17 +41,36 @@ api_version = 'v1'
 # processor_thread = ProcessorThread(db_session)
 # processor_thread.start()
 
-ALLOWED_NETWORKS = vision_models.__all__[-2:]
+ALLOWED_NETWORKS = []
+DATASETS = {}
 
-def get_allowed_layers(model_name):
+for name, model in nets.models_map.items():
+#     print name.ljust(27), " ", Model.dataset
+    ALLOWED_NETWORKS.append(name)
+    DATASETS[name] = model.dataset
 
-    model = get_model(model_name)
-    model.load_graphdef()
+# ALLOWED_NETWORKS = vision_models.__all__[-2:]
 
-    # currently support only two layer types
-    allowed_layers = [node.name for node in model.graph_def.node if node.op in [
-        'BiasAdd', 'Conv2D']]
+def get_allowed_layers(model_name, flat=False):
 
+#     model = get_model(model_name)
+#     model.load_graphdef()
+
+#     # currently support only two layer types
+#     allowed_layers = [node.name for node in model.graph_def.node if node.op in [
+#         'BiasAdd', 'Conv2D']]
+    model_cls = getattr(models, model_name, None)
+    
+    if model_cls:
+        if flat:
+            allowed_layers = [layer.name for layer in model_cls.layers]
+        else:
+            allowed_layers = {layer.name:{'type':list(layer.tags)[0], 'depth':layer.depth} for layer in model_cls.layers}
+        
+        
+    else:
+        allowed_layers = []
+    
     return allowed_layers
 
 # ALLOWED_LAYERS = get_allowed_layers(MODEL_NAMES)
@@ -69,7 +92,7 @@ def available_networks():
     reply = []
     
     for i, net in enumerate(ALLOWED_NETWORKS):
-        reply.append({'id':i, 'description':NETWORK_DESCRIPTION[net], 'name':net})
+        reply.append({'id':i, 'description':NETWORK_DESCRIPTION.get(net, 'no description'), 'name':net, 'dataset':DATASETS.get(net, 'unknown')})
     
     return wrap_reply(reply, data_key='networks')
 
@@ -146,12 +169,24 @@ def jobs_all():
             return wrap_reply(f'{net} is not allowed', False)
 
         layer = params['layer']
-
-        if layer not in get_allowed_layers(net):
+        
+        allowed_layers = get_allowed_layers(net) 
+        
+        
+        if layer not in allowed_layers:
             return wrap_reply(f'{layer} is not allowed', False)
 
         if 'channel' in params:
-            channel = params['channel']
+            channel = int(params['channel'])
+            
+            max_depth = allowed_layers[layer]['depth']
+            
+            if channel >= max_depth:
+                return wrap_reply(f'max depth for {layer} is {max_depth} (submitted {channel})', False)
+            else:
+                # db expects channel to be a string
+                channel = str(channel)
+                
         else:
             channel = ''
 

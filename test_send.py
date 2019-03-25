@@ -1,7 +1,7 @@
 import urllib.request
 import json
 
-body = {'network': 'InceptionV1', 'layer': 'mixed4b_3x3_pre_relu'}
+body = {'network': 'InceptionV1', 'layer': 'mixed4c', 'channel':511}
 
 myurl = "http://localhost:5001/v1/jobs/"
 
